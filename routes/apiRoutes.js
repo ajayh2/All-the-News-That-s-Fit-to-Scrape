@@ -1,70 +1,134 @@
+const axios = require('axios');
+const cheerio = require("cheerio");
+const mongoose = require("mongoose");
+const db = require("../models");
 
-var db = require("../models");
+var MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost/mongoHeadlines";
+mongoose.connect(MONGODB_URI, { useNewUrlParser: true });
 
-// Routes
-
-module.exports = function(app) {
-
-  // GET route for getting all of the posts
-  app.get("/api/posts", function(req, res) {
-    var query = {};
-    if (req.query.author_id) {
-      query.AuthorId = req.query.author_id;
-    }
-    // Here we add an "include" property to our options in our findAll query
-    // We set the value to an array of the models we want to include in a left outer join
-    // In this case, just db.Author
-    db.Post.findAll({
-      where: query,
-      include: [db.Author]
-    }).then(function(dbPost) {
-      res.json(dbPost);
-    });
+module.exports = function (app) {
+  app.get('/', function (req, res) {
+    db.Article.find({saved: false}, function(err, data){
+      res.render('home', { home: true, article : data });
+    })
   });
 
-  // Get route for retrieving a single post
-  app.get("/api/posts/:id", function(req, res) {
-    // Here we add an "include" property to our options in our findOne query
-    // We set the value to an array of the models we want to include in a left outer join
-    // In this case, just db.Author
-    db.Post.findOne({
-      where: {
-        id: req.params.id
-      },
-      include: [db.Author]
-    }).then(function(dbPost) {
-      res.json(dbPost);
-    });
+  app.get('/saved', function (req, res) {
+    db.Article.find({saved: true}, function(err, data){
+      res.render('saved', { home: false, article : data });
+    })
   });
 
-  // POST route for saving a new post
-  app.post("/api/posts", function(req, res) {
-    db.Post.create(req.body).then(function(dbPost) {
-      res.json(dbPost);
-    });
-  });
-
-  // DELETE route for deleting posts
-  app.delete("/api/posts/:id", function(req, res) {
-    db.Post.destroy({
-      where: {
-        id: req.params.id
+  app.put("/api/headlines/:id", function(req, res){
+    var saved = req.body.saved == 'true'
+    if(saved){
+      db.Article.updateOne({_id: req.body._id},{$set: {saved:true}}, function(err, result){
+      if (err) {
+        console.log(err)
+      } else {
+        return res.send(true)
       }
-    }).then(function(dbPost) {
-      res.json(dbPost);
+    });
+    }
+  });
+
+  app.delete("/api/headlines/:id", function(req, res){
+    console.log('reqbody:' + JSON.stringify(req.params.id))
+    db.Article.deleteOne({_id: req.params.id}, function(err, result){
+      if (err) {
+        console.log(err)
+      } else {
+        return res.send(true)
+      }
     });
   });
 
-  // PUT route for updating posts
-  app.put("/api/posts", function(req, res) {
-    db.Post.update(
-      req.body,
-      {
-        where: {
-          id: req.body.id
+  app.get("/api/fetch", function(req, res){
+  axios.get("https://www.nytimes.com/").then(function(response) {
+    const $ = cheerio.load(response.data);
+
+    $("article").each(function(i, element) {
+
+      var result = {};
+      result.headline = $(element).find("h2").text().trim();
+      result.url = 'https://www.nytimes.com' + $(element).find("a").attr("href");
+      result.summary = $(element).find("p").text().trim();
+
+      if (result.headline !== '' && result.summary !== ''){
+			db.Article.findOne({headline: result.headline}, function(err, data) {
+        if(err){
+          console.log(err)
+        } else {
+          if (data === null) {
+					db.Article.create(result)
+           .then(function(dbArticle) {
+             console.log(dbArticle)
+          })
+          .catch(function(err) {
+          console.log(err)
+          });
+				}
+        console.log(data)
         }
-      }).then(function(dbPost) {
-      res.json(dbPost);
+			});
+      }
+
+      });
+
+    res.send("Scrape completed!");
+  });
+  });
+
+  app.get("/api/notes/:id", function(req, res){
+    db.Article.findOne({_id: req.params.id})
+    .populate("note")
+    .then(function(dbArticle){
+      console.log(dbArticle.note)
+      res.json(dbArticle.note)
+    })
+    .catch(function(err){
+      res.json(err)
+    })
+  });
+
+    app.post("/api/notes", function(req, res){
+    console.log(req.body)
+    db.Note.create({ noteText: req.body.noteText })
+    .then(function(dbNote){
+      console.log('dbNote:' + dbNote)
+      return db.Article.findOneAndUpdate({ _id:req.body._headlineId}, 
+      { $push: {note: dbNote._id} }, 
+      {new: true})
+    })
+    .then(function(dbArticle){
+      console.log('dbArticle:'+dbArticle)
+      res.json(dbArticle)
+    })
+    .catch(function(err){
+      res.json(err);
+    })
+  });
+
+  app.delete("/api/notes/:id", function(req, res){
+    console.log('reqbody:' + JSON.stringify(req.params.id))
+    db.Note.deleteOne({_id: req.params.id}, function(err, result){
+      if (err) {
+        console.log(err)
+      } else {
+        return res.send(true)
+      }
     });
   });
-};
+
+  app.get("/api/clear", function(req, res){
+    console.log(req.body)
+    db.Article.deleteMany({}, function(err, result){
+      if (err) {
+        console.log(err)
+      } else {
+        console.log(result)
+        res.send(true)
+      }
+    })
+  });
+}
