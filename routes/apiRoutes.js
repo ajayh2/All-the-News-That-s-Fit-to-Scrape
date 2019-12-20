@@ -3,7 +3,7 @@ const cheerio = require("cheerio");
 const mongoose = require("mongoose");
 const db = require("../models");
 
-var MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost/mongoHeadlines";
+var MONGODB_URI = process.env.MONGODB_URI || "mongodb://user:password1@ds035310.mlab.com:35310/heroku_g19jmgwp";
 mongoose.connect(MONGODB_URI, { useNewUrlParser: true });
 
 module.exports = function (app) {
